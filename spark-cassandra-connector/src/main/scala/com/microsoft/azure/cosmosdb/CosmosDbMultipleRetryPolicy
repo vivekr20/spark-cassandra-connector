@@ -1,0 +1,41 @@
+package com.microsoft.azure.cosmosdb
+
+import com.datastax.driver.core.exceptions._
+import com.datastax.driver.core.policies.RetryPolicy.RetryDecision
+import com.datastax.driver.core.{ConsistencyLevel, Statement}
+import com.datastax.spark.connector.cql.MultipleRetryPolicy
+
+class CosmosDbMultipleRetryPolicy(maxRetryCount: Int)
+  extends MultipleRetryPolicy(maxRetryCount){
+
+val GrowingBackOffTimeMs: Int = 1000
+val FixedBackOffTimeMs: Int = 5000
+
+  // scalastyle:off null
+  private def retryManyTimesWithBackOffOrThrow(nbRetry: Int): RetryDecision = maxRetryCount match {
+    case -1 =>
+      Thread.sleep(FixedBackOffTimeMs)
+      RetryDecision.retry(null)
+    case maxRetries =>
+      if (nbRetry < maxRetries) {
+        Thread.sleep(GrowingBackOffTimeMs * nbRetry)
+        RetryDecision.retry(null)
+      } else {
+        RetryDecision.rethrow()
+      }
+  }
+
+  override def init(cluster: com.datastax.driver.core.Cluster): Unit = {}
+  override def close(): Unit = {}
+
+  override def onRequestError(
+                               stmt: Statement,
+                               cl: ConsistencyLevel,
+                               ex: DriverException,
+                               nbRetry: Int): RetryDecision = {
+    ex match {
+      case _: OverloadedException => retryManyTimesWithBackOffOrThrow(nbRetry)
+      case _ => RetryDecision.rethrow()
+    }
+  }
+}
